@@ -30,6 +30,8 @@ interface Props {
   showXLabel?: boolean;
 }
 
+const SECOND_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+
 /** Fixed y-axis width so stacked charts (and the strips below) share the same plot area. */
 export const Y_AXIS_SIZE = 48;
 
@@ -83,9 +85,12 @@ export function TimeChart({
           y: { range: (_u, _min, max) => [yRange[0], Math.max(yRange[1], max)] },
         },
         axes: [
-          showXLabel
-            ? { ...axis, label: "seconds", labelSize: 18, labelFont: "12px system-ui" }
-            : axis,
+          // Whole seconds only: tick steps of 1, 2, 5, 10 … seconds, never 0.25.
+          {
+            ...axis,
+            incrs: SECOND_STEPS,
+            ...(showXLabel ? { label: "seconds", labelSize: 18, labelFont: "12px system-ui" } : {}),
+          },
           { ...axis, size: Y_AXIS_SIZE },
         ],
         series: [
