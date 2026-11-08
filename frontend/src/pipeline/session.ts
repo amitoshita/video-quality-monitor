@@ -101,6 +101,8 @@ export class LiveSession {
   private readonly deps: LiveSessionDeps;
   private analyzer: ReturnType<LiveSessionDeps["createAnalyzer"]> | null = null;
   private detectorLoad: Promise<FaceDetection> | null = null;
+  /** Bumped by every start() and by stop() during a start; a stale start sees the mismatch. */
+  private startToken = 0;
 
   constructor(config: PublicConfig, deps: Partial<LiveSessionDeps> = {}) {
     this.config = config;
@@ -177,6 +179,7 @@ export class LiveSession {
 
   async start(video: HTMLVideoElement): Promise<void> {
     if (this.state.phase !== "idle") return;
+    const token = ++this.startToken;
     this.update({
       phase: "starting",
       startStep: "camera",
@@ -192,24 +195,47 @@ export class LiveSession {
     detectorReady.catch(() => {}); // awaited below; avoids an unhandled rejection if the camera fails first
 
     let stream: MediaStream | null = null;
+    // stop() during a start cancels it: every await below may resume after that.
+    const cancelled = () => token !== this.startToken;
+    const release = () => {
+      stopTracks(stream);
+      if (video.srcObject === stream) video.srcObject = null;
+    };
     try {
       stream = await this.deps.openCamera();
+      if (cancelled()) {
+        release();
+        return;
+      }
       video.muted = true;
       video.playsInline = true;
       video.srcObject = stream;
       await video.play();
+      if (cancelled()) {
+        release();
+        return;
+      }
 
       // Without a detector there is no honest "face" value, so no session is started at all.
       if (this.state.detector.status !== "ready") this.update({ startStep: "detector" });
       const detector = await detectorReady;
+      if (cancelled()) {
+        release();
+        return;
+      }
 
       this.update({ startStep: "session" });
       const session = await this.deps.api.createSession();
+      if (cancelled()) {
+        release();
+        void this.endSession(session.id); // created just as Start was cancelled: end it, empty
+        return;
+      }
       this.begin(session, stream, video, detector);
     } catch (error) {
+      release();
+      if (cancelled()) return; // nobody is waiting for this start any more
       console.error("[session] start failed", error);
-      stopTracks(stream);
-      video.srcObject = null;
       this.update({
         phase: "idle",
         startStep: null,
@@ -299,11 +325,18 @@ export class LiveSession {
   /**
    * Stops capture at once (camera light off) and returns to idle, so Start is available again
    * immediately. Seconds that completed are emitted; the partial last second is dropped.
+   * Called while a start is still in progress, it cancels that start instead.
    *
    * The returned promise settles when the stopped session has finished in the background: its
    * queue delivered everything (retrying through network errors), then /stop was called.
    */
   stop(notice: LiveState["message"] = null): Promise<void> {
+    if (this.state.phase === "starting") {
+      // Cancel the pending start; it releases the camera itself when its current step returns.
+      this.startToken += 1;
+      this.update({ phase: "idle", startStep: null, message: notice });
+      return Promise.resolve();
+    }
     const run = this.running;
     if (this.state.phase !== "running" || !run) return Promise.resolve();
     this.running = null;

@@ -490,3 +490,79 @@ describe("LiveSession face detector loading", () => {
     expect(ctx.live.getState().message?.text).toMatch(/Face detection could not be loaded/);
   });
 });
+
+describe("LiveSession stop during start", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it("cancels while the permission prompt is open and releases the camera when it resolves", async () => {
+    const camera = deferred<MediaStream>();
+    const ctx = setup({ openCamera: () => camera.promise });
+
+    const starting = ctx.live.start(ctx.element);
+    await vi.advanceTimersByTimeAsync(0);
+    void ctx.live.stop({ kind: "info", text: "stopped" });
+
+    expect(ctx.live.getState()).toMatchObject({ phase: "idle", startStep: null });
+    camera.resolve(ctx.stream); // the user answers the prompt after leaving
+    await starting;
+
+    expect(ctx.track.stop).toHaveBeenCalled();
+    expect(ctx.video.srcObject).toBeNull();
+    expect(ctx.deps.api.createSession).not.toHaveBeenCalled();
+    expect(ctx.live.getState().phase).toBe("idle");
+  });
+
+  it("ends a session that was created just as the start was cancelled", async () => {
+    const created = deferred<SessionInfo>();
+    const ctx = setup({
+      api: {
+        createSession: () => created.promise,
+        stopSession: vi.fn(() => Promise.resolve(SESSION)),
+      },
+    });
+
+    const starting = ctx.live.start(ctx.element);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.live.getState().startStep).toBe("session");
+    void ctx.live.stop();
+    created.resolve(SESSION);
+    await starting;
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ctx.deps.api.stopSession).toHaveBeenCalledWith("s-1");
+    expect(ctx.track.stop).toHaveBeenCalled();
+    expect(ctx.pendingCallbacks()).toBe(0); // no frame loop was started
+    expect(ctx.live.getState().phase).toBe("idle");
+  });
+
+  it("a cancelled start that resumes late doesn't disturb a newer session", async () => {
+    const firstCamera = deferred<MediaStream>();
+    const stale = fakeStream();
+    const fresh = fakeStream();
+    const openCamera = vi
+      .fn<() => Promise<MediaStream>>()
+      .mockReturnValueOnce(firstCamera.promise)
+      .mockResolvedValueOnce(fresh.stream);
+    const ctx = setup({ openCamera });
+
+    const firstStart = ctx.live.start(ctx.element);
+    await vi.advanceTimersByTimeAsync(0);
+    void ctx.live.stop();
+    await ctx.live.start(ctx.element); // second start succeeds
+    expect(ctx.live.getState().phase).toBe("running");
+
+    firstCamera.resolve(stale.stream); // the first prompt resolves only now
+    await firstStart;
+
+    expect(stale.track.stop).toHaveBeenCalled(); // its own camera is released
+    expect(fresh.track.stop).not.toHaveBeenCalled(); // the running session is untouched
+    expect(ctx.video.srcObject).toBe(fresh.stream);
+    expect(ctx.live.getState()).toMatchObject({ phase: "running", sessionId: "s-1" });
+  });
+});
