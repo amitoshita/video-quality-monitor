@@ -233,8 +233,14 @@ const scenarios = {
     const latest = (await api("/sessions?limit=1")).items[0];
     check("confirming stopped the session", latest.ended_at !== null);
 
+    const firstLink = await page.locator(".history-row a").first().getAttribute("href");
+    check("newest session is listed first", firstLink?.endsWith(latest.id) === true);
+    // Opened right after Stop, the list may predate the last delivered second; it refreshes
+    // by itself once delivery finishes.
+    const final = await api(`/sessions/${latest.id}`);
+    await page.locator(".history-row").first().filter({ hasText: `${final.summary.duration_s} s` }).waitFor({ timeout: 10_000 }).catch(() => {});
     const firstRow = await page.locator(".history-row").first().innerText();
-    check("newest session is listed first", firstRow.includes(`${latest.summary.duration_s} s`), firstRow.replace(/\t/g, " · "));
+    check("its row shows the complete session", firstRow.includes(`\t${final.summary.duration_s} s\t`), firstRow.replace(/\t/g, " · "));
     await page.locator(".history-row a").first().click();
     await page.locator(".chart").first().waitFor();
     check("details show the summary and the charts", (await page.locator(".tile").count()) === 4 && (await page.locator(".chart").count()) === 3);

@@ -6,8 +6,16 @@ import { href } from "./router";
 import { useLoad } from "./useLoad";
 
 /** One session: the full chart (same style as live), its summary, and a way back. */
-export function SessionView({ id, config }: { id: string; config: PublicConfig }) {
-  const { state, reload } = useLoad(`session:${id}`, () => api.getSession(id));
+export function SessionView({
+  id,
+  config,
+  refresh,
+}: {
+  id: string;
+  config: PublicConfig;
+  refresh: number;
+}) {
+  const { state, reload } = useLoad(`session:${id}`, () => api.getSession(id), refresh);
 
   let body: ReactNode;
   if (state.status === "loading") {

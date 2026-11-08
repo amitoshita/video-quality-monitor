@@ -237,7 +237,7 @@ describe("LiveSession stop", () => {
     // Seconds 1 and 2 delivered; the partial third second is dropped.
     expect(ctx.sent.flatMap((c) => c.ts)).toEqual([1, 2]);
     expect(ctx.calls.at(-1)).toBe("stopSession");
-    expect(ctx.live.getState().phase).toBe("idle");
+    expect(ctx.live.getState()).toMatchObject({ phase: "idle", deliveredSessions: 1 });
   });
 
   it("is a no-op when nothing is running, and when called twice", async () => {

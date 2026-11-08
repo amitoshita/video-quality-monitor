@@ -6,10 +6,14 @@ export type Load<T> =
 /**
  * Runs `load` whenever `key` changes and tracks its state. A response that arrives after the
  * key changed (or after unmount) is ignored, so a slow request can't overwrite a newer one.
+ *
+ * A change of `refresh` reloads the same key in the background: the current data stays on screen
+ * until the new data replaces it (no "Loading…" flash).
  */
 export function useLoad<T>(
   key: string,
   load: () => Promise<T>,
+  refresh = 0,
 ): { state: Load<T>; reload: () => void } {
   const [result, setResult] = useState<{ key: string; state: Load<T> } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -29,7 +33,7 @@ export function useLoad<T>(
     };
     // `load` is a new closure on every render; the key identifies what to load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, attempt]);
+  }, [key, attempt, refresh]);
 
   const reload = useCallback(() => {
     setResult(null);

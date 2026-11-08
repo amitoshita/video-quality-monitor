@@ -35,6 +35,8 @@ export interface LiveState {
   frameMode: "rvfc" | "raf" | null;
   /** Samples of stopped sessions that are still being delivered in the background. */
   backgroundPending: number;
+  /** Increments each time a stopped session is fully delivered, so views of stored data refresh. */
+  deliveredSessions: number;
 }
 
 /** What the controller needs from the outside world; injected so it can be tested. */
@@ -92,6 +94,7 @@ export class LiveSession {
     detector: { status: "idle", delegate: null, error: null },
     frameMode: null,
     backgroundPending: 0,
+    deliveredSessions: 0,
   };
   private readonly listeners = new Set<() => void>();
   private running: Running | null = null;
@@ -373,6 +376,7 @@ export class LiveSession {
       this.updateBackgroundCount();
     }
     await this.endSession(sessionId);
+    this.update({ deliveredSessions: this.state.deliveredSessions + 1 });
   }
 
   /** /stop is idempotent, so retrying it after a network error is safe. */

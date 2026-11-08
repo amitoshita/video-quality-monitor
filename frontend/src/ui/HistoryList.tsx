@@ -7,10 +7,12 @@ import { useLoad } from "./useLoad";
 const PAGE_SIZE = 20;
 
 /** All sessions, newest first, with the backend-computed summary of each. */
-export function HistoryList() {
+export function HistoryList({ refresh }: { refresh: number }) {
   const [offset, setOffset] = useState(0);
-  const { state, reload } = useLoad(`sessions:${String(offset)}`, () =>
-    api.listSessions(PAGE_SIZE, offset),
+  const { state, reload } = useLoad(
+    `sessions:${String(offset)}`,
+    () => api.listSessions(PAGE_SIZE, offset),
+    refresh,
   );
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { PublicConfig } from "../api/client";
 import { LiveSession } from "../pipeline/session";
 import { HistoryList } from "./HistoryList";
@@ -60,14 +60,17 @@ function Ready({ config, route }: { config: PublicConfig; route: Route }) {
     live.preloadFaceDetector();
     return live.attachToPage();
   }, [live]);
+  // A session stopped just before opening History may still be delivering its last samples;
+  // History refreshes when that finishes.
+  const delivered = useSyncExternalStore(live.subscribe, () => live.getState().deliveredSessions);
 
   switch (route.name) {
     case "live":
       return <LiveScreen config={config} live={live} />;
     case "history":
-      return <HistoryList />;
+      return <HistoryList refresh={delivered} />;
     case "session":
-      return <SessionView id={route.id} config={config} />;
+      return <SessionView id={route.id} config={config} refresh={delivered} />;
   }
 }
 
