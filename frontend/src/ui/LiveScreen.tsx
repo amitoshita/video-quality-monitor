@@ -5,6 +5,7 @@ import { MetricsPanel } from "./MetricsPanel";
 import { QualityCharts } from "./QualityCharts";
 import { ThresholdsTable } from "./ThresholdsTable";
 import { deliveryText, plural } from "./format";
+import { appRouter } from "./router";
 
 const START_LABELS: Record<NonNullable<LiveState["startStep"]>, string> = {
   camera: "Waiting for the camera…",
@@ -15,6 +16,18 @@ const START_LABELS: Record<NonNullable<LiveState["startStep"]>, string> = {
 export function LiveScreen({ config, live }: { config: PublicConfig; live: LiveSession }) {
   const state = useSyncExternalStore(live.subscribe, live.getState);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Leaving while a session is starting or running stops it, so ask first: an accidental click
+  // on History must not end a session without warning.
+  useEffect(
+    () =>
+      appRouter().setLeaveGuard(
+        () =>
+          live.getState().phase === "idle" ||
+          window.confirm("This will stop the current session. Continue?"),
+      ),
+    [live],
+  );
 
   // The session needs this screen's <video> element to receive frames, so leaving the screen
   // (e.g. opening History) stops it rather than silently recording 0 FPS. Delivery of its
