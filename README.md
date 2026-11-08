@@ -27,6 +27,18 @@ npm run dev                   # http://localhost:5173 (localhost counts as secur
 
 Checks: `uv run pytest && uv run ruff check . && uv run mypy app tests alembic` in `backend/`; `npm run lint && npm run typecheck && npm test` in `frontend/`. CI runs all of them, with the backend tests against both SQLite and Postgres 17.
 
+### Browser tests
+
+`e2e/` drives the real app in headless Chrome with a fake camera and checks the outcome in the backend: live metrics and real FPS, black / white / noise camera feeds (too dark, too bright, hold still), denied permission, a 10-second network outage (no sample lost or duplicated), Stop while offline then Start again, Start/Stop five times, and History (including the confirmation before leaving a running session). CI runs it on every push. Locally, with both services running as above and Google Chrome installed:
+
+```bash
+cd e2e
+npm ci
+npm test                      # or: node run.mjs offline history
+```
+
+It creates sessions, so it refuses to run against a non-local API unless `E2E_ALLOW_REMOTE=1`. What it can't cover (a real face, real lighting, a real hidden window) is in the manual checklist in [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Stack and free services
 
 | Part           | Choice                                                                                       | Why                                                                                    |
@@ -38,7 +50,7 @@ Checks: `uv run pytest && uv run ruff check . && uv run mypy app tests alembic` 
 | Database       | SQLAlchemy 2 + Alembic + psycopg 3                                                           | One code path for SQLite (local, tests) and Postgres (production)                      |
 | Hosting        | **Cloudflare Pages** (frontend) · **Render** free web service (API) · **Neon** free Postgres | All free with no card. Neon's compute suspends when idle and resumes on the next query |
 
-Deploy steps: [docs/DEPLOY.md](docs/DEPLOY.md). Post-deploy check: `scripts/smoke.sh API_URL FRONTEND_URL`.
+Deploy steps: [docs/DEPLOY.md](docs/DEPLOY.md). Post-deploy check: `scripts/smoke.sh API_URL FRONTEND_URL`. Every requirement of the task mapped to its implementation and tests: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
 ## Thresholds
 
@@ -147,3 +159,6 @@ The video stays in the browser: frames are drawn to a canvas in memory, measured
 - **Motion threshold** is calibrated on one laptop camera; noisier sensors may need a different `MAX_MOTION`.
 - **The backend trusts the browser's verdict.** It validates ranges and that `reason` matches `verdict`, but it doesn't recompute the verdict from the metrics.
 - **Not zero-allocation per frame:** our own per-frame code allocates nothing, but the canvas API's `getImageData` returns a new buffer every frame.
+- **Face detection runs on every processed frame** (not throttled). On a slow machine that lowers the measured FPS, which is then reported as it is.
+- **No accounts, so no delete:** everyone sees the same list (as the spec asks), and sessions can't be deleted from the app, since anyone could delete anyone's. Test sessions are cleaned up in the database directly.
+- **Automated tests use a synthetic camera.** A real face, real lighting and a real hidden window are verified by hand with the checklist in [docs/DEPLOY.md](docs/DEPLOY.md).

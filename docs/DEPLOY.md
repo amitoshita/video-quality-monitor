@@ -38,6 +38,8 @@ The free instance sleeps after 15 minutes without traffic; the next request wake
    - `NODE_VERSION` = `22`
 5. **Save and Deploy**. Note the URL, e.g. `https://video-quality-monitor.pages.dev`.
 
+Optional: Settings → Builds → **Build watch paths** → include `frontend/*`, so backend-only commits don't rebuild the frontend (the backend already has the same filter in `render.yaml`).
+
 `VITE_API_BASE_URL` is baked in at build time; the build fails if it is missing or not `https://`. Changing it later requires a redeploy (Deployments → Retry deployment).
 
 ## 4. Connect them
