@@ -29,3 +29,6 @@ coverage/
 
 # Copied from node_modules at build time (scripts/copy-mediapipe-wasm.mjs)
 frontend/public/mediapipe/
+
+# Generated fake-camera videos for the browser tests
+e2e/videos/

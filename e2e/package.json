@@ -1,0 +1,13 @@
+{
+  "name": "vqm-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests: the real app in Chrome with a fake camera",
+  "scripts": {
+    "videos": "node make-videos.mjs",
+    "test": "node make-videos.mjs && node run.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.65.0"
+  }
+}
