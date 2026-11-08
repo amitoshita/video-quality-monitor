@@ -35,3 +35,32 @@ export function deliveryText(queue: QueueStatus | null): DeliveryInfo | null {
 export function plural(count: number, noun: string): string {
   return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
 }
+
+/** "1 min 14 s", "45 s", "0 s". */
+export function formatDuration(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes === 0) return `${String(rest)} s`;
+  return rest === 0 ? `${String(minutes)} min` : `${String(minutes)} min ${String(rest)} s`;
+}
+
+/** Summary values are null for a session without samples: show a dash, never 0. */
+export function formatStat(value: number | null, unit = ""): string {
+  return value === null ? "—" : `${value.toFixed(1)}${unit}`;
+}
+
+/**
+ * Date and time of an ISO timestamp in the viewer's time zone. The language defaults to the
+ * page's own (<html lang>), so dates match the rest of the English UI whatever the OS locale.
+ */
+export function formatDateTime(iso: string, locale = pageLanguage(), timeZone?: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(new Date(iso));
+}
+
+function pageLanguage(): string | undefined {
+  return typeof document === "undefined" ? undefined : document.documentElement.lang || undefined;
+}

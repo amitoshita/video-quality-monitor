@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { PublicConfig } from "../api/client";
-import { LiveSession, RECENT_SECONDS, type LiveState } from "../pipeline/session";
+import { RECENT_SECONDS, type LiveSession, type LiveState } from "../pipeline/session";
 import { MetricsPanel } from "./MetricsPanel";
 import { QualityCharts } from "./QualityCharts";
 import { ThresholdsTable } from "./ThresholdsTable";
@@ -12,16 +12,22 @@ const START_LABELS: Record<NonNullable<LiveState["startStep"]>, string> = {
   session: "Starting session…",
 };
 
-export function LiveScreen({ config }: { config: PublicConfig }) {
-  // Created once; the constructor has no side effects, so StrictMode's double call is harmless.
-  const [live] = useState(() => new LiveSession(config));
+export function LiveScreen({ config, live }: { config: PublicConfig; live: LiveSession }) {
   const state = useSyncExternalStore(live.subscribe, live.getState);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
-    live.preloadFaceDetector();
-    return live.attachToPage();
-  }, [live]);
+  // The session needs this screen's <video> element to receive frames, so leaving the screen
+  // (e.g. opening History) stops it rather than silently recording 0 FPS. Delivery of its
+  // remaining samples continues in the background.
+  useEffect(
+    () => () => {
+      void live.stop({
+        kind: "info",
+        text: "The session was stopped when you left the live screen.",
+      });
+    },
+    [live],
+  );
 
   const running = state.phase === "running";
   const latest = state.recent.at(-1) ?? null;

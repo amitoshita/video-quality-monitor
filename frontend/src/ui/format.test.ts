@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { QueueStatus } from "../pipeline/sampleQueue";
-import { deliveryText, formatLevel, verdictText } from "./format";
+import {
+  deliveryText,
+  formatDateTime,
+  formatDuration,
+  formatLevel,
+  formatStat,
+  verdictText,
+} from "./format";
 
 const healthy: QueueStatus = {
   pending: 0,
@@ -36,5 +43,28 @@ describe("format", () => {
       tone: "warn",
       text: "Connection problem: 3 samples waiting, retrying · 1 sample dropped",
     });
+  });
+});
+
+describe("history formatting", () => {
+  it("formats durations", () => {
+    expect(formatDuration(0)).toBe("0 s");
+    expect(formatDuration(45)).toBe("45 s");
+    expect(formatDuration(60)).toBe("1 min");
+    expect(formatDuration(74)).toBe("1 min 14 s");
+  });
+
+  it("shows a dash for stats of an empty session", () => {
+    expect(formatStat(null, "%")).toBe("—");
+    expect(formatStat(33.3, "%")).toBe("33.3%");
+    expect(formatStat(29.6)).toBe("29.6");
+    expect(formatStat(100, "%")).toBe("100.0%");
+  });
+
+  it("formats timestamps in the given locale and time zone", () => {
+    expect(formatDateTime("2026-11-08T14:38:18.722254Z", "en-GB", "UTC")).toBe("8 Nov 2026, 14:38");
+    expect(formatDateTime("2026-11-08T14:38:18Z", "en-GB", "Asia/Jerusalem")).toBe(
+      "8 Nov 2026, 16:38",
+    );
   });
 });

@@ -25,6 +25,29 @@ export interface IngestResult {
   ignored_after_stop: number;
 }
 
+export interface Summary {
+  duration_s: number;
+  sample_count: number;
+  avg_fps: number | null;
+  face_pct: number | null;
+  good_pct: number | null;
+}
+
+export interface SessionWithSummary extends SessionInfo {
+  summary: Summary;
+}
+
+export interface SessionList {
+  items: SessionWithSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface SessionDetail extends SessionWithSummary {
+  samples: Sample[];
+}
+
 export interface PublicConfig {
   thresholds: Thresholds;
   maxBatchSize: number;
@@ -101,6 +124,11 @@ export const api = {
   },
 
   createSession: () => request<SessionInfo>("/sessions", { method: "POST" }),
+
+  listSessions: (limit: number, offset: number) =>
+    request<SessionList>(`/sessions?limit=${String(limit)}&offset=${String(offset)}`),
+
+  getSession: (id: string) => request<SessionDetail>(`/sessions/${encodeURIComponent(id)}`),
 
   stopSession: (id: string) =>
     request<SessionInfo>(`/sessions/${encodeURIComponent(id)}/stop`, { method: "POST" }),
