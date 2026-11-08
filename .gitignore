@@ -1,0 +1,28 @@
+# Spec is kept locally for reference only
+TASK.md
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Env files (examples are committed)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
