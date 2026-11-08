@@ -1,6 +1,6 @@
 # Live Video Quality Monitor
 
-**Live app:** _URL added after deploy_ · **API:** _URL added after deploy_
+**Live app:** <https://video-quality-monitor.pages.dev> · **API:** <https://vqm-api.onrender.com> ([health](https://vqm-api.onrender.com/healthz), [thresholds](https://vqm-api.onrender.com/config))
 
 A web app that opens the webcam and measures video quality in the browser, every frame: real FPS, brightness, motion, and whether a face is in view. Once per second it turns that into one sample with a **Good / Poor** verdict (and the reason when Poor), draws the last 30 seconds live, and sends the samples to a FastAPI backend, which stores each session in Postgres and computes its summary. The video never leaves the browser; only the numbers do. Delivery survives network drops without losing or duplicating samples.
 
