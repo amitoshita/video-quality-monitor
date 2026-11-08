@@ -26,3 +26,6 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+
+# Copied from node_modules at build time (scripts/copy-mediapipe-wasm.mjs)
+frontend/public/mediapipe/
