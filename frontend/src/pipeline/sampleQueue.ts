@@ -56,6 +56,8 @@ export class SampleQueue {
   private dropped = 0;
   private closed = false;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Ends drain()'s wait for the next retry early (see retryNow). */
+  private wakeDrain: (() => void) | null = null;
   private readonly listeners = new Set<() => void>();
 
   private readonly transport: Transport;
@@ -72,7 +74,9 @@ export class SampleQueue {
     this.maxBatchSize = options.maxBatchSize;
     this.flushIntervalMs = options.flushIntervalMs ?? 1500;
     this.baseBackoffMs = options.baseBackoffMs ?? 1500;
-    this.maxBackoffMs = options.maxBackoffMs ?? 30_000;
+    // Capped low: samples arrive every second, and a backend waking from a cold start sends
+    // no "online" event to cut a long backoff short.
+    this.maxBackoffMs = options.maxBackoffMs ?? 10_000;
     this.now = options.now ?? (() => performance.now());
     this.random = options.random ?? Math.random;
     this.log =
@@ -182,12 +186,35 @@ export class SampleQueue {
       const now = this.now();
       if (now >= deadline) break;
       if (!this.inFlight && this.retryAt !== null && now < this.retryAt) {
-        await sleep(Math.min(this.retryAt, deadline) - now);
+        await this.waitForRetry(Math.min(this.retryAt, deadline) - now);
         continue;
       }
       await this.flush();
     }
     return this.queue.length === 0;
+  }
+
+  /**
+   * Skips the current backoff and sends now. Called when the browser reports it is back online,
+   * so a long outage doesn't leave samples waiting out a backoff after the network returned.
+   */
+  retryNow(): void {
+    if (this.retryAt === null) return;
+    this.retryAt = null;
+    this.wakeDrain?.();
+    void this.flush();
+  }
+
+  private waitForRetry(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.wakeDrain = null;
+        resolve();
+      };
+      const timer = setTimeout(done, Math.max(0, ms));
+      this.wakeDrain = done;
+    });
   }
 
   /**
@@ -224,8 +251,4 @@ export class SampleQueue {
   private notify(): void {
     for (const listener of this.listeners) listener();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }

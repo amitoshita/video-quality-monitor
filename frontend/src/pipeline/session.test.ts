@@ -319,6 +319,28 @@ describe("LiveSession page lifecycle", () => {
     detach();
   });
 
+  it("retries immediately when the browser comes back online", async () => {
+    const ctx = setup();
+    const page = new EventTarget();
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    ctx.live.attachToPage(page as unknown as Window, doc as unknown as Document);
+    ctx.setResponse(() => ({ kind: "retry", error: "offline" }));
+    await ctx.live.start(ctx.element);
+    await play(ctx, 8); // several failures: backoff is now several seconds long
+    const attemptsBefore = ctx.sent.length;
+    expect(ctx.live.getState().queue?.retryAt).not.toBeNull();
+
+    ctx.setResponse((samples) => ({
+      kind: "ok",
+      result: { accepted: samples.length, duplicates: 0, ignored_after_stop: 0 },
+    }));
+    page.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ctx.sent.length).toBe(attemptsBefore + 1);
+    expect(ctx.live.getState().queue).toMatchObject({ failures: 0, retryAt: null });
+  });
+
   it("reflects tab visibility in the state", () => {
     const ctx = setup();
     const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });

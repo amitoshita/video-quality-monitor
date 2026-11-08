@@ -123,7 +123,7 @@ export class LiveSession {
   };
 
   /**
-   * Page-level listeners (pagehide, visibilitychange). Returned function removes them. Kept out
+   * Page-level listeners (pagehide, visibilitychange, online). Returned function removes them. Kept out
    * of the constructor so React StrictMode's double render can't leak listeners.
    */
   attachToPage(target: Window = window, doc: Document = document): () => void {
@@ -133,11 +133,17 @@ export class LiveSession {
     const onVisibility = () => {
       this.update({ hidden: doc.visibilityState === "hidden" });
     };
+    const onOnline = () => {
+      this.running?.queue.retryNow();
+      for (const queue of this.background) queue.retryNow();
+    };
     target.addEventListener("pagehide", onPageHide);
+    target.addEventListener("online", onOnline);
     doc.addEventListener("visibilitychange", onVisibility);
     onVisibility();
     return () => {
       target.removeEventListener("pagehide", onPageHide);
+      target.removeEventListener("online", onOnline);
       doc.removeEventListener("visibilitychange", onVisibility);
     };
   }

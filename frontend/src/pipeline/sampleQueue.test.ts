@@ -144,6 +144,37 @@ describe("SampleQueue", () => {
     expect(calls).toHaveLength(4);
   });
 
+  it("caps the backoff at 10 s by default", async () => {
+    const { transport, calls } = manualTransport();
+    const { queue } = makeQueue(transport, { baseBackoffMs: 1500 });
+    queue.enqueue(sample(1));
+    for (let attempt = 0; attempt < 8; attempt++) {
+      vi.setSystemTime(queue.status().retryAt ?? 0);
+      const flushing = queue.flush();
+      calls[attempt]?.resolve({ kind: "retry", error: "offline" });
+      await flushing;
+    }
+    const now = Date.now();
+    expect((queue.status().retryAt ?? 0) - now).toBe(10_000);
+  });
+
+  it("retryNow skips the backoff and sends immediately", async () => {
+    const { transport, calls } = manualTransport();
+    const { queue } = makeQueue(transport, { baseBackoffMs: 8000 });
+    queue.enqueue(sample(1));
+    const first = queue.flush();
+    calls[0]?.resolve({ kind: "retry", error: "offline" });
+    await first;
+    expect(queue.status().retryAt).toBe(8000);
+
+    queue.retryNow();
+
+    expect(calls).toHaveLength(2);
+    calls[1]?.resolve(ok(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.status()).toMatchObject({ pending: 0, failures: 0, retryAt: null });
+  });
+
   it("applies jitter within the backoff ceiling", async () => {
     const { transport, calls } = manualTransport();
     const { queue } = makeQueue(transport, { baseBackoffMs: 1000, random: () => 0.25 });
@@ -271,6 +302,24 @@ describe("SampleQueue", () => {
       expect(await drained).toBe(false);
       expect(Date.now()).toBeGreaterThanOrEqual(5000);
       expect(queue.status().pending).toBe(1);
+    });
+
+    it("wakes up from a backoff wait when retryNow is called", async () => {
+      let online = false;
+      const send = vi.fn<Transport>(() =>
+        Promise.resolve(online ? ok(1) : { kind: "retry", error: "offline" }),
+      );
+      const { queue } = makeQueue(send, { baseBackoffMs: 9000 });
+      queue.enqueue(sample(1));
+
+      const drained = queue.drain(60_000);
+      await vi.advanceTimersByTimeAsync(100); // first attempt failed, now waiting ~9 s
+      online = true;
+      queue.retryNow();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(await drained).toBe(true);
+      expect(Date.now()).toBeLessThan(1000);
     });
 
     it("resolves immediately when there is nothing to send", async () => {
