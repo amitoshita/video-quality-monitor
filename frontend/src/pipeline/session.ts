@@ -8,21 +8,32 @@ import { startFrameLoop, type FrameLoop } from "./frameLoop";
 import { SampleQueue, type QueueStatus, type Transport } from "./sampleQueue";
 import { httpTransport } from "./transport";
 
-export type Phase = "idle" | "starting" | "running" | "stopping";
+export type Phase = "idle" | "starting" | "running";
+
+/** What Start is waiting for, so the UI can say so instead of showing a frozen button. */
+export type StartStep = "camera" | "detector" | "session";
+
+export interface DetectorState {
+  status: "idle" | "loading" | "ready" | "failed";
+  delegate: "GPU" | "CPU" | null;
+  error: string | null;
+}
 
 export interface LiveState {
   phase: Phase;
+  startStep: StartStep | null;
   /** Last problem or notice to show the user, if any. */
   message: { kind: "error" | "info"; text: string } | null;
   sessionId: string | null;
   /** The most recent samples of the current (or last) session, oldest first. */
   recent: Sample[];
   resolution: { width: number; height: number } | null;
+  /** Delivery status of the running session's queue. */
   queue: QueueStatus | null;
   hidden: boolean;
-  faceDelegate: "GPU" | "CPU" | null;
+  detector: DetectorState;
   frameMode: "rvfc" | "raf" | null;
-  /** Samples from earlier sessions that are still being delivered in the background. */
+  /** Samples of stopped sessions that are still being delivered in the background. */
   backgroundPending: number;
 }
 
@@ -38,8 +49,10 @@ export interface LiveSessionDeps {
 
 export const RECENT_SECONDS = 30;
 const TICK_MS = 250;
-const STOP_DRAIN_MS = 5000;
 const STOP_ATTEMPTS = 3;
+const DETECTOR_ERROR =
+  "Face detection could not be loaded, so quality can't be measured honestly. " +
+  "Check your connection and press Start to try again, or reload the page.";
 
 interface Running {
   session: SessionInfo;
@@ -60,17 +73,23 @@ interface Running {
  *
  * Start order: camera first, then the backend session. A denied permission therefore never
  * leaves an empty session behind; if creating the session fails, the camera is released.
+ *
+ * Every backend session gets its own SampleQueue bound to its id, so samples of different
+ * sessions can never mix. Stop releases the camera and returns to idle at once; the stopped
+ * session's queue finishes delivering (then calls /stop) in the background, so a new Start is
+ * never blocked by a slow network.
  */
 export class LiveSession {
   private state: LiveState = {
     phase: "idle",
+    startStep: null,
     message: null,
     sessionId: null,
     recent: [],
     resolution: null,
     queue: null,
     hidden: false,
-    faceDelegate: null,
+    detector: { status: "idle", delegate: null, error: null },
     frameMode: null,
     backgroundPending: 0,
   };
@@ -81,6 +100,7 @@ export class LiveSession {
   private readonly config: PublicConfig;
   private readonly deps: LiveSessionDeps;
   private analyzer: ReturnType<LiveSessionDeps["createAnalyzer"]> | null = null;
+  private detectorLoad: Promise<FaceDetection> | null = null;
 
   constructor(config: PublicConfig, deps: Partial<LiveSessionDeps> = {}) {
     this.config = config;
@@ -122,10 +142,38 @@ export class LiveSession {
     };
   }
 
+  /**
+   * Starts loading the face detector (wasm + model) in the background, so Start is instant.
+   * Called on page load; safe to call again. A failed load can be retried.
+   */
+  preloadFaceDetector(): void {
+    this.loadDetector().catch(() => {}); // the failure is reported through state
+  }
+
+  private loadDetector(): Promise<FaceDetection> {
+    if (this.detectorLoad) return this.detectorLoad;
+    this.update({ detector: { status: "loading", delegate: null, error: null } });
+    const load = this.deps.loadFaceDetector().then(
+      (detector) => {
+        this.update({ detector: { status: "ready", delegate: detector.delegate, error: null } });
+        return detector;
+      },
+      (error: unknown) => {
+        console.error("[face] detector failed to load", error);
+        this.detectorLoad = null; // the next Start retries
+        this.update({ detector: { status: "failed", delegate: null, error: DETECTOR_ERROR } });
+        throw new Error(DETECTOR_ERROR);
+      },
+    );
+    this.detectorLoad = load;
+    return load;
+  }
+
   async start(video: HTMLVideoElement): Promise<void> {
     if (this.state.phase !== "idle") return;
     this.update({
       phase: "starting",
+      startStep: "camera",
       message: null,
       sessionId: null,
       recent: [],
@@ -133,9 +181,9 @@ export class LiveSession {
       queue: null,
     });
 
-    // Start loading the detector (usually already cached) while the permission prompt is open.
-    const detectorReady = this.deps.loadFaceDetector();
-    detectorReady.catch(() => {}); // handled below; avoids an unhandled rejection if the camera fails first
+    // Usually already loaded by preloadFaceDetector(); keeps loading during the permission prompt.
+    const detectorReady = this.loadDetector();
+    detectorReady.catch(() => {}); // awaited below; avoids an unhandled rejection if the camera fails first
 
     let stream: MediaStream | null = null;
     try {
@@ -145,17 +193,22 @@ export class LiveSession {
       video.srcObject = stream;
       await video.play();
 
-      const detector = await detectorReady.catch((error: unknown) => {
-        console.error("[face] detector failed to load", error);
-        throw new Error("Face detection could not be loaded. Reload the page and try again.");
-      });
+      // Without a detector there is no honest "face" value, so no session is started at all.
+      if (this.state.detector.status !== "ready") this.update({ startStep: "detector" });
+      const detector = await detectorReady;
+
+      this.update({ startStep: "session" });
       const session = await this.deps.api.createSession();
       this.begin(session, stream, video, detector);
     } catch (error) {
       console.error("[session] start failed", error);
       stopTracks(stream);
       video.srcObject = null;
-      this.update({ phase: "idle", message: { kind: "error", text: describeStartError(error) } });
+      this.update({
+        phase: "idle",
+        startStep: null,
+        message: { kind: "error", text: describeStartError(error) },
+      });
     }
   }
 
@@ -219,13 +272,13 @@ export class LiveSession {
     };
     this.update({
       phase: "running",
+      startStep: null,
       sessionId: session.id,
       resolution:
         settings.width && settings.height
           ? { width: settings.width, height: settings.height }
           : null,
       queue: queue.status(),
-      faceDelegate: detector.delegate,
       frameMode: loop.mode,
     });
   }
@@ -238,15 +291,16 @@ export class LiveSession {
   };
 
   /**
-   * Stops capture immediately (camera light off), sends what's left, then ends the session.
-   * The partial last second is dropped. If the queue can't drain within a few seconds, delivery
-   * continues in the background and /stop is called once it succeeds.
+   * Stops capture at once (camera light off) and returns to idle, so Start is available again
+   * immediately. Seconds that completed are emitted; the partial last second is dropped.
+   *
+   * The returned promise settles when the stopped session has finished in the background: its
+   * queue delivered everything (retrying through network errors), then /stop was called.
    */
-  async stop(notice: LiveState["message"] = null): Promise<void> {
+  stop(notice: LiveState["message"] = null): Promise<void> {
     const run = this.running;
-    if (this.state.phase !== "running" || !run) return;
+    if (this.state.phase !== "running" || !run) return Promise.resolve();
     this.running = null;
-    this.update({ phase: "stopping" });
 
     run.loop.stop();
     clearInterval(run.ticker);
@@ -255,37 +309,31 @@ export class LiveSession {
     stopTracks(run.stream);
     run.video.srcObject = null;
     run.queue.stopTimer();
-
-    const drained = await run.queue.drain(STOP_DRAIN_MS);
     run.unsubscribeQueue();
-    let message = notice;
-    if (drained) {
-      await this.endSession(run.session.id);
-    } else {
-      this.finishInBackground(run.queue, run.session.id);
-      message ??= {
-        kind: "info",
-        text: `${String(run.queue.status().pending)} samples are not delivered yet; still retrying in the background.`,
-      };
-    }
-    this.update({ phase: "idle", queue: run.queue.status(), message });
+
+    this.update({ phase: "idle", queue: null, message: notice });
+    return this.finishInBackground(run.queue, run.session.id);
   }
 
-  private finishInBackground(queue: SampleQueue, sessionId: string): void {
+  /** Delivers a stopped session's remaining samples, then ends it on the backend. */
+  private async finishInBackground(queue: SampleQueue, sessionId: string): Promise<void> {
     this.background.add(queue);
     const unsubscribe = queue.subscribe(() => {
       this.updateBackgroundCount();
     });
     this.updateBackgroundCount();
-    void (async () => {
-      while (!(await queue.drain(60_000))) {
-        if (queue.status().pending === 0) break; // closed (session gone)
+    try {
+      // drain() honours the queue's backoff; it returns early only when the queue is empty or
+      // closed (session gone), otherwise we simply keep going until the page is closed.
+      while (!(await queue.drain(60_000)) && queue.status().pending > 0) {
+        /* keep retrying */
       }
+    } finally {
       unsubscribe();
       this.background.delete(queue);
       this.updateBackgroundCount();
-      await this.endSession(sessionId);
-    })();
+    }
+    await this.endSession(sessionId);
   }
 
   /** /stop is idempotent, so retrying it after a network error is safe. */

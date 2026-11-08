@@ -145,7 +145,7 @@ describe("LiveSession start", () => {
       sessionId: "s-1",
       resolution: { width: 640, height: 480 },
       frameMode: "rvfc",
-      faceDelegate: "CPU",
+      detector: { status: "ready", delegate: "CPU", error: null },
     });
     expect(ctx.video.srcObject).toBe(ctx.stream);
     expect(ctx.video.muted).toBe(true);
@@ -263,17 +263,17 @@ describe("LiveSession stop", () => {
     expect(ctx.deps.api.stopSession).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps delivering in the background when the network is down at Stop", async () => {
+  it("returns to idle at once and keeps delivering in the background when offline", async () => {
     const ctx = setup();
     ctx.setResponse(() => ({ kind: "retry", error: "offline" }));
     await ctx.live.start(ctx.element);
     await play(ctx, 2.1);
 
-    const stopping = ctx.live.stop();
-    await vi.advanceTimersByTimeAsync(6000);
-    await stopping;
+    const finished = ctx.live.stop();
 
     expect(ctx.live.getState()).toMatchObject({ phase: "idle", backgroundPending: 2 });
+    expect(ctx.track.stop).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(6000);
     expect(ctx.deps.api.stopSession).not.toHaveBeenCalled();
 
     ctx.setResponse((samples) => ({
@@ -281,6 +281,7 @@ describe("LiveSession stop", () => {
       result: { accepted: samples.length, duplicates: 0, ignored_after_stop: 0 },
     }));
     await vi.advanceTimersByTimeAsync(40_000);
+    await finished;
 
     expect(ctx.live.getState().backgroundPending).toBe(0);
     expect(ctx.deps.api.stopSession).toHaveBeenCalledTimes(1);
@@ -327,5 +328,143 @@ describe("LiveSession page lifecycle", () => {
     doc.dispatchEvent(new Event("visibilitychange"));
 
     expect(ctx.live.getState().hidden).toBe(true);
+  });
+});
+
+describe("LiveSession with a previous session still sending", () => {
+  it("starts a new session at once and never mixes samples between sessions", async () => {
+    const ids = ["s-1", "s-2"];
+    const online = { "s-1": false, "s-2": true } as Record<string, boolean>;
+    const sentTo: Record<string, { t: number; brightness: number | null }[][]> = {
+      "s-1": [],
+      "s-2": [],
+    };
+    const createSession = vi.fn(() =>
+      Promise.resolve({ ...SESSION, id: ids.shift() ?? "unexpected" }),
+    );
+    const stopSession = vi.fn((id: string) => Promise.resolve({ ...SESSION, id }));
+    const ctx = setup({
+      api: { createSession, stopSession },
+      transportFor: (id) => (samples) => {
+        sentTo[id].push(samples.map(({ t, brightness }) => ({ t, brightness })));
+        return Promise.resolve(
+          online[id]
+            ? {
+                kind: "ok",
+                result: { accepted: samples.length, duplicates: 0, ignored_after_stop: 0 },
+              }
+            : { kind: "retry", error: "offline" },
+        );
+      },
+    });
+
+    // Session 1 (brightness 50) records 2 s while its backend requests fail.
+    ctx.analyzer.brightness = 50;
+    await ctx.live.start(ctx.element);
+    await play(ctx, 2.1);
+    const firstFinished = ctx.live.stop();
+
+    // Start again right away: not blocked by session 1's pending samples.
+    ctx.analyzer.brightness = 150;
+    await ctx.live.start(ctx.element);
+    expect(ctx.live.getState()).toMatchObject({
+      phase: "running",
+      sessionId: "s-2",
+      backgroundPending: 2,
+    });
+    await play(ctx, 3.2);
+
+    // Session 1's network recovers while session 2 is still running.
+    online["s-1"] = true;
+    await vi.advanceTimersByTimeAsync(40_000);
+    await firstFinished;
+
+    // Seconds with frames carry their session's brightness; session 2 also emitted honest
+    // fps:0 seconds (brightness null) while the clock ran on without frames.
+    const brightnessSentTo = (id: string) =>
+      new Set(
+        sentTo[id]
+          .flat()
+          .map((sample) => sample.brightness)
+          .filter((b) => b !== null),
+      );
+    expect(brightnessSentTo("s-1")).toEqual(new Set([50]));
+    expect(brightnessSentTo("s-2")).toEqual(new Set([150]));
+    expect(stopSession.mock.calls).toEqual([["s-1"]]); // session 2 is still running
+    expect(ctx.live.getState()).toMatchObject({ backgroundPending: 0, sessionId: "s-2" });
+  });
+});
+
+describe("LiveSession face detector loading", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("preloads in the background and reports when it is ready", async () => {
+    const load = deferred<{ delegate: "GPU"; hasFace: () => boolean }>();
+    const loadFaceDetector = vi.fn(() => load.promise);
+    const ctx = setup({ loadFaceDetector });
+
+    ctx.live.preloadFaceDetector();
+    expect(ctx.live.getState().detector.status).toBe("loading");
+    load.resolve({ delegate: "GPU", hasFace: () => true });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ctx.live.getState().detector).toEqual({ status: "ready", delegate: "GPU", error: null });
+    await ctx.live.start(ctx.element);
+    expect(loadFaceDetector).toHaveBeenCalledTimes(1); // Start reuses the preloaded detector
+  });
+
+  it("says it is waiting for the detector when Start is pressed before it is ready", async () => {
+    const load = deferred<{ delegate: "CPU"; hasFace: () => boolean }>();
+    const ctx = setup({ loadFaceDetector: () => load.promise });
+
+    const starting = ctx.live.start(ctx.element);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.live.getState()).toMatchObject({ phase: "starting", startStep: "detector" });
+    expect(ctx.deps.api.createSession).not.toHaveBeenCalled();
+
+    load.resolve({ delegate: "CPU", hasFace: () => true });
+    await starting;
+    expect(ctx.live.getState()).toMatchObject({ phase: "running", startStep: null });
+  });
+
+  it("refuses to start without a detector instead of reporting 'no face'", async () => {
+    const loadFaceDetector = vi
+      .fn<LiveSessionDeps["loadFaceDetector"]>()
+      .mockRejectedValueOnce(new Error("wasm 404"))
+      .mockResolvedValue({ delegate: "CPU", hasFace: () => true });
+    const ctx = setup({ loadFaceDetector });
+
+    ctx.live.preloadFaceDetector();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.live.getState().detector.status).toBe("failed");
+
+    // The first Start retries the load (which succeeds this time).
+    await ctx.live.start(ctx.element);
+    expect(loadFaceDetector).toHaveBeenCalledTimes(2);
+    expect(ctx.live.getState().phase).toBe("running");
+  });
+
+  it("releases the camera and creates no session if the detector fails during Start", async () => {
+    const ctx = setup({ loadFaceDetector: () => Promise.reject(new Error("model 404")) });
+
+    await ctx.live.start(ctx.element);
+
+    expect(ctx.deps.api.createSession).not.toHaveBeenCalled();
+    expect(ctx.track.stop).toHaveBeenCalled();
+    expect(ctx.live.getState()).toMatchObject({
+      phase: "idle",
+      recent: [],
+      detector: { status: "failed" },
+      message: { kind: "error" },
+    });
+    expect(ctx.live.getState().message?.text).toMatch(/Face detection could not be loaded/);
   });
 });
