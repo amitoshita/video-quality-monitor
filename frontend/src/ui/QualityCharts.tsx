@@ -15,8 +15,9 @@ interface Props {
 }
 
 /**
- * FPS and brightness/motion as two stacked charts sharing one time window and crosshair (two
- * measures with different scales get two charts, not two y-axes), plus face and verdict strips.
+ * FPS, brightness and motion as three stacked charts sharing one time window and crosshair
+ * (measures with different scales get their own charts, not extra y-axes), plus face and
+ * verdict strips.
  */
 export function QualityCharts({ samples, thresholds, from, to, syncKey }: Props) {
   const [plotBox, setPlotBox] = useState<{ left: number; width: number } | null>(null);
@@ -28,10 +29,10 @@ export function QualityCharts({ samples, thresholds, from, to, syncKey }: Props)
       byT: new Map(visible.map((s) => [s.t, s])),
       x: visible.map((s) => s.t),
       fps: [{ label: "FPS", colorVar: "--series-1", values: visible.map((s) => s.fps) }],
-      levels: [
+      brightness: [
         { label: "Brightness", colorVar: "--series-2", values: visible.map((s) => s.brightness) },
-        { label: "Motion", colorVar: "--series-3", values: visible.map((s) => s.motion) },
       ],
+      motion: [{ label: "Motion", colorVar: "--series-3", values: visible.map((s) => s.motion) }],
     };
   }, [samples, from, to]);
   // Half a second of padding so each second's strip cell is centred on its tick.
@@ -51,9 +52,9 @@ export function QualityCharts({ samples, thresholds, from, to, syncKey }: Props)
         showXLabel={false}
       />
       <TimeChart
-        title="Brightness and motion (0–255)"
+        title="Brightness (0–255)"
         x={data.x}
-        series={data.levels}
+        series={data.brightness}
         xRange={xRange}
         yRange={[0, 255]}
         thresholds={[
@@ -65,11 +66,25 @@ export function QualityCharts({ samples, thresholds, from, to, syncKey }: Props)
             value: thresholds.maxBrightness,
             label: `too bright > ${String(thresholds.maxBrightness)}`,
           },
+        ]}
+        syncKey={syncKey}
+        height={150}
+        showXLabel={false}
+      />
+      <TimeChart
+        title="Motion"
+        x={data.x}
+        series={data.motion}
+        xRange={xRange}
+        // Real motion is small (a whole-frame mean): ~1 still, ~4 moving the head. The axis
+        // starts at 0–10 and grows only if a value exceeds it.
+        yRange={[0, 10]}
+        thresholds={[
           { value: thresholds.maxMotion, label: `hold still > ${String(thresholds.maxMotion)}` },
         ]}
         syncKey={syncKey}
         onPlotBox={setPlotBox}
-        height={230}
+        height={170}
       />
       <StatusStrip {...faceStrip} from={from} to={to} byT={data.byT} plotBox={plotBox} />
       <StatusStrip {...verdictStrip} from={from} to={to} byT={data.byT} plotBox={plotBox} />
