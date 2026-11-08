@@ -48,7 +48,15 @@ async function createFaceDetection(): Promise<FaceDetection> {
 }
 
 function wrap(detector: FaceDetector, delegate: "GPU" | "CPU"): FaceDetection {
-  let lastTimestamp = Number.NEGATIVE_INFINITY;
+  // Warm-up: the first inference compiles GPU shaders and can block the main thread for a
+  // second or more. Paying that here, during preload, keeps the first seconds of a session
+  // from showing a stall that has nothing to do with the camera.
+  let lastTimestamp = performance.now();
+  const blank = document.createElement("canvas");
+  blank.width = 64;
+  blank.height = 64;
+  detector.detectForVideo(blank, lastTimestamp);
+
   return {
     delegate,
     hasFace(video, nowMs) {
