@@ -28,7 +28,15 @@ Motion is defined by the spec as the mean absolute luma difference over the **wh
 
 ## Hidden tab (background throttling)
 
-Browsers stop delivering video frames to a page that isn't visible (another tab in front, the window minimised, or on macOS fully covered by another window). While the tab is hidden:
+Browsers stop delivering video frames to a page that isn't visible. "Not visible" means more than another tab:
+
+- another tab is in front in the same window;
+- the browser window is **minimised**;
+- on macOS, the window is **fully covered by another window** (for example a terminal). Chrome detects that the window is occluded and treats the page as hidden, even though its tab is still the active one.
+
+Verified with a real laptop camera: in a 60 s session with Chrome in front and nothing covering it, FPS stayed steady with no 0-FPS seconds; switching to other windows produced the 0-FPS stretches described below.
+
+While the page is hidden:
 
 - No frames are processed, so each hidden second is stored honestly as `fps: 0` with `brightness` and `motion` as `null`. Nothing is interpolated or invented. The charts show a gap, and the session keeps one sample per second, so `t` stays contiguous and "duration = t of the last sample" still holds.
 - The live screen shows "Paused while this tab is hidden".
