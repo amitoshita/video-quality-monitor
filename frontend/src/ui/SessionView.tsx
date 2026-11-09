@@ -42,7 +42,7 @@ export function SessionView({
           Started {formatDateTime(session.started_at)} ·{" "}
           {session.ended_at
             ? `stopped ${formatDateTime(session.ended_at)}`
-            : "not stopped (the tab was closed); it ends at its last sample"}
+            : "not stopped: still running, or the tab was closed (it then ends at its last sample)"}
         </p>
         <dl className="tiles tiles-4">
           <Stat name="Duration" value={formatDuration(summary.duration_s)} />
