@@ -27,6 +27,8 @@ class SampleIn(SampleFields):
             raise ValueError("reason must be null when verdict is 'good' and set when 'poor'")
         if self.fps == 0 and (self.brightness is not None or self.motion is not None):
             raise ValueError("a second with no processed frames has no brightness or motion")
+        if self.fps == 0 and self.face:
+            raise ValueError("a second with no processed frames cannot have seen a face")
         if self.fps > 0 and self.brightness is None:
             raise ValueError("brightness is required when frames were processed")
         return self

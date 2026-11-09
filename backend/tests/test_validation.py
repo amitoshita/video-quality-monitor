@@ -39,6 +39,7 @@ INVALID_SAMPLES: list[tuple[str, dict[str, Any]]] = [
     ("no brightness with frames", sample(1, brightness=None)),
     ("brightness without frames", poor(1, "no_face", fps=0, motion=None, face=False)),
     ("motion without frames", poor(1, "no_face", fps=0, brightness=None, face=False)),
+    ("face without frames", poor(1, "low_fps", fps=0, brightness=None, motion=None, face=True)),
 ]
 
 

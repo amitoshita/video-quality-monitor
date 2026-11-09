@@ -51,6 +51,7 @@ describe("isValidSample mirrors the backend's rules", () => {
     ["frames but no brightness", { brightness: null }],
     ["no frames but brightness", { ...emptySecond, brightness: 10 }],
     ["no frames but motion", { ...emptySecond, motion: 1 }],
+    ["no frames but a face", { ...emptySecond, face: true, reason: "low_fps" }],
   ])("rejects %s", (_name, overrides) => {
     const sample = { ...good, ...overrides };
     expect(isValidSample(sample)).toBe(false);

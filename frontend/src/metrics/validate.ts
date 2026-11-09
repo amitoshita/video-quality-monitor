@@ -37,6 +37,7 @@ export function sampleProblem(sample: Sample): string | null {
   if (s.fps === 0 && (s.brightness !== null || s.motion !== null)) {
     return "a second without frames cannot have brightness or motion";
   }
+  if (s.fps === 0 && s.face) return "a second without frames cannot have seen a face";
   if (s.fps !== 0 && s.brightness === null) {
     return "brightness is required when frames were processed";
   }
