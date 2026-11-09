@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Sample, Thresholds } from "../metrics/types";
+import { chartColumns } from "./chartData";
 import { formatLevel, verdictText } from "./format";
 import { StatusStrip } from "./StatusStrip";
 import { faceStrip, verdictStrip } from "./strips";
@@ -24,15 +25,15 @@ export function QualityCharts({ samples, thresholds, from, to, syncKey }: Props)
 
   const data = useMemo(() => {
     const visible = samples.filter((s) => s.t >= from && s.t <= to);
+    const byT = new Map(visible.map((s) => [s.t, s]));
+    const columns = chartColumns(byT, from, to);
     return {
       visible,
-      byT: new Map(visible.map((s) => [s.t, s])),
-      x: visible.map((s) => s.t),
-      fps: [{ label: "FPS", colorVar: "--series-1", values: visible.map((s) => s.fps) }],
-      brightness: [
-        { label: "Brightness", colorVar: "--series-2", values: visible.map((s) => s.brightness) },
-      ],
-      motion: [{ label: "Motion", colorVar: "--series-3", values: visible.map((s) => s.motion) }],
+      byT,
+      x: columns.x,
+      fps: [{ label: "FPS", colorVar: "--series-1", values: columns.fps }],
+      brightness: [{ label: "Brightness", colorVar: "--series-2", values: columns.brightness }],
+      motion: [{ label: "Motion", colorVar: "--series-3", values: columns.motion }],
     };
   }, [samples, from, to]);
   // Half a second of padding so each second's strip cell is centred on its tick.
