@@ -29,8 +29,9 @@ async function createFaceDetection(): Promise<FaceDetection> {
 
   let lastError: unknown = null;
   for (const delegate of ["GPU", "CPU"] as const) {
+    let detector: FaceDetector | null = null;
     try {
-      const detector = await FaceDetector.createFromOptions(fileset, {
+      detector = await FaceDetector.createFromOptions(fileset, {
         baseOptions: {
           modelAssetPath: assetUrl("models/blaze_face_short_range.tflite"),
           delegate,
@@ -40,6 +41,7 @@ async function createFaceDetection(): Promise<FaceDetection> {
       });
       return wrap(detector, delegate);
     } catch (error) {
+      detector?.close(); // created but failed its warm-up: free its WebGL context before CPU
       lastError = error;
       console.warn(`[face] ${delegate} delegate unavailable`, error);
     }
