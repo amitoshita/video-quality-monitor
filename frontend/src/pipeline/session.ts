@@ -278,7 +278,11 @@ export class LiveSession {
       this.update({ recent: [...this.state.recent, sample].slice(-RECENT_SECONDS) });
     });
 
-    const onFrame = (nowMs: number) => {
+    // Frames are timed when they are processed, on the same clock as the ticker. The frame
+    // callback's own timestamp is the vsync time, which can be a few ms older than a tick that
+    // already closed the second, and the frame would then count towards the wrong second.
+    const onFrame = () => {
+      const nowMs = this.deps.now();
       try {
         analyzer.process(video, nowMs);
         const face = detector.hasFace(video, nowMs);
