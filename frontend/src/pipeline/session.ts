@@ -210,6 +210,10 @@ export class LiveSession {
         release();
         return;
       }
+      // .at() is typed as possibly undefined. Checked before the backend session exists, so a
+      // broken camera never leaves an empty session behind.
+      const track = stream.getVideoTracks().at(0);
+      if (!track) throw new CameraError("not_found", "The camera returned no video track.");
       video.muted = true;
       video.playsInline = true;
       video.srcObject = stream;
@@ -234,7 +238,7 @@ export class LiveSession {
         void this.endSession(session.id); // created just as Start was cancelled: end it, empty
         return;
       }
-      this.begin(session, stream, video, detector);
+      this.begin(session, stream, track, video, detector);
     } catch (error) {
       release();
       if (cancelled()) return; // nobody is waiting for this start any more
@@ -250,11 +254,10 @@ export class LiveSession {
   private begin(
     session: SessionInfo,
     stream: MediaStream,
+    track: MediaStreamTrack,
     video: HTMLVideoElement,
     detector: FaceDetection,
   ): void {
-    const track = stream.getVideoTracks().at(0); // .at() is typed as possibly undefined
-    if (!track) throw new CameraError("not_found", "The camera returned no video track.");
     const settings = track.getSettings();
 
     this.analyzer ??= this.deps.createAnalyzer();

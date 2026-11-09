@@ -181,6 +181,24 @@ describe("LiveSession start", () => {
     expect(ctx.live.getState().message?.text).toMatch(/Can't reach the server/);
   });
 
+  it("creates no session when the camera returns no video track", async () => {
+    const audioOnly = { stop: vi.fn() };
+    const stream = {
+      getTracks: () => [audioOnly],
+      getVideoTracks: () => [],
+    } as unknown as MediaStream;
+    const ctx = setup({ openCamera: () => Promise.resolve(stream) });
+
+    await ctx.live.start(ctx.element);
+
+    expect(ctx.deps.api.createSession).not.toHaveBeenCalled();
+    expect(audioOnly.stop).toHaveBeenCalled();
+    expect(ctx.live.getState()).toMatchObject({
+      phase: "idle",
+      message: { kind: "error", text: "The camera returned no video track." },
+    });
+  });
+
   it("explains a server error when creating the session", async () => {
     const ctx = setup({
       api: {
