@@ -250,6 +250,9 @@ const scenarios = {
     await page.goto(`${APP}/#/sessions/00000000-0000-4000-8000-000000000000`);
     await page.getByText("This session does not exist.").waitFor();
     check("unknown session: clear message", true);
+    await page.goto(`${APP}/#/sessions/%E0%A4%A`);
+    await page.getByText("This session does not exist.").waitFor({ timeout: 5000 });
+    check("broken link: the same message, not a blank page", true);
     await browser.close();
   },
 };

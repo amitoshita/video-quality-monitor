@@ -13,8 +13,17 @@ export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, "");
   if (path === "/history") return { name: "history" };
   const match = /^\/sessions\/([^/]+)$/.exec(path);
-  if (match?.[1]) return { name: "session", id: decodeURIComponent(match[1]) };
+  if (match?.[1]) return { name: "session", id: safeDecode(match[1]) };
   return { name: "live" };
+}
+
+/** A hand-typed hash can hold broken percent-encoding; that must not crash rendering. */
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment; // looked up as-is, so the session view reports "does not exist"
+  }
 }
 
 /** The parts of `window` the router uses (narrowed so tests can fake it). */

@@ -16,6 +16,10 @@ describe("parseHash", () => {
   it("round-trips session links", () => {
     expect(parseHash(href.session("a b/c"))).toEqual({ name: "session", id: "a b/c" });
   });
+
+  it("does not throw on broken percent-encoding in a typed URL", () => {
+    expect(parseHash("#/sessions/%E0%A4%A")).toEqual({ name: "session", id: "%E0%A4%A" });
+  });
 });
 
 /** A fake window: navigate() changes the hash like a click or Back would, then fires hashchange. */
